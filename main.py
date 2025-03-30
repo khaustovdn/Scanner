@@ -31,14 +31,23 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QGroupBox,
     QFormLayout,
+    QGraphicsDropShadowEffect,
 )
-from PySide6.QtGui import QPainter, QShowEvent
+from PySide6.QtGui import (
+    QPainter,
+    QPalette,
+    QPen,
+    QColor,
+    QFont,
+    QShowEvent,
+)
 from PySide6.QtCharts import (
     QChart,
     QChartView,
     QBarSet,
     QBarSeries,
     QBarCategoryAxis,
+    QLegend,
     QValueAxis,
 )
 from dependency_injector import containers, providers
@@ -46,6 +55,368 @@ from dependency_injector import containers, providers
 
 
 # region UTILITIES
+
+
+class DarkTheme:
+    """Catppuccin Mocha dark theme with enhanced visual design system."""
+
+    _CATPPUCCIN_PALETTE = {
+        "base": "#1e1e2e",            # Base
+        "text": "#cdd6f4",            # Text
+        "disabled_text": "#6c7086",   # Overlay0
+        "highlight": "#89b4fa",       # Blue
+        "highlight_text": "#1e1e2e",  # Base
+        "alternate_base": "#313244",  # Surface0
+        "tooltip_base": "#585b70",    # Surface2
+        "button": "#313244",          # Surface0
+        "button_text": "#cdd6f4",     # Text
+        "bright_text": "#f38ba8",     # Red
+        "surface1": "#45475a",        # Surface1
+        "overlay0": "#6c7086",        # Overlay0
+        "graph_colors": [             # Catppuccin accent colors
+            "#b4befe",  # Lavender
+            "#f5c2e7",  # Mauve
+            "#74c7ec",  # Sapphire
+            "#94e2d5",  # Teal
+            "#fab387",  # Peach
+            "#f9e2af",  # Yellow
+        ]
+    }
+
+    _BASE_FONT_SIZE = 15
+    _TABLET_FONT_SIZE = 18
+    _TABLET_DIAGONAL_INCH = 9
+    _CORNER_RADIUS = 10
+
+    @classmethod
+    def apply_theme(cls, app: QApplication) -> None:
+        """Apply refined Catppuccin Mocha theme with design system."""
+        palette = app.palette()
+        colors = cls._CATPPUCCIN_PALETTE
+
+        role_mappings = {
+            QPalette.ColorRole.Window: colors["base"],
+            QPalette.ColorRole.WindowText: colors["text"],
+            QPalette.ColorRole.Base: colors["base"],
+            QPalette.ColorRole.AlternateBase: colors["alternate_base"],
+            QPalette.ColorRole.ToolTipBase: colors["tooltip_base"],
+            QPalette.ColorRole.ToolTipText: colors["text"],
+            QPalette.ColorRole.Text: colors["text"],
+            QPalette.ColorRole.Button: colors["button"],
+            QPalette.ColorRole.ButtonText: colors["button_text"],
+            QPalette.ColorRole.BrightText: colors["bright_text"],
+            QPalette.ColorRole.Highlight: colors["highlight"],
+            QPalette.ColorRole.HighlightedText: colors["highlight_text"],
+        }
+
+        for role, color in role_mappings.items():
+            palette.setColor(role, QColor(color))
+
+        app.setPalette(palette)
+        cls._apply_stylesheet(app)
+        cls.apply_adaptive_styles(app)
+
+    @classmethod
+    def _apply_stylesheet(cls, app: QApplication) -> None:
+        """Apply refined styling with design system consistency."""
+        colors = cls._CATPPUCCIN_PALETTE
+        radius = cls._CORNER_RADIUS
+        stylesheet = f"""
+            /* ======== Global Styles ======== */
+            QWidget {{
+                font-family: "Inter", "Segoe UI", system-ui;
+                font-size: {cls._BASE_FONT_SIZE}px;
+                color: {colors['text']};
+                background: {colors['base']};
+            }}
+
+            /* ======== Typography ======== */
+            QLabel {{
+                font-weight: 450;
+                padding: 4px 0;
+            }}
+
+            QLabel[important="true"] {{
+                font-size: {cls._BASE_FONT_SIZE + 2}px;
+                font-weight: 600;
+                color: {colors['highlight']};
+            }}
+
+            /* ======== Buttons ======== */
+            QPushButton {{
+                background: {colors['button']};
+                color: {colors['button_text']};
+                padding: 12px 24px;
+                border-radius: {radius}px;
+                border: 1px solid {colors['surface1']};
+                min-width: 120px;
+            }}
+
+            QPushButton:hover {{
+                background: {colors['surface1']};
+                border-color: {colors['overlay0']};
+            }}
+
+            QPushButton:pressed {{
+                background: {colors['highlight']};
+                color: {colors['highlight_text']};
+            }}
+
+            /* ======== Form Elements ======== */
+            QLineEdit, QTextEdit, QComboBox {{
+                background: {colors['alternate_base']};
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius - 2}px;
+                padding: 12px;
+                selection-background-color: {colors['highlight']};
+                font: inherit;
+            }}
+
+            QLineEdit:focus, QComboBox:focus {{
+                border-color: {colors['highlight']};
+            }}
+
+            /* ======== Checkboxes & Radio ======== */
+            QCheckBox, QRadioButton {{
+                spacing: 8px;
+                color: {colors['text']};
+            }}
+
+            QCheckBox::indicator, QRadioButton::indicator {{
+                width: 20px;
+                height: 20px;
+                border: 2px solid {colors['surface1']};
+                border-radius: 4px;
+                background: {colors['alternate_base']};
+            }}
+
+            QCheckBox::indicator:checked,
+            QRadioButton::indicator:checked {{
+                background: {colors['highlight']};
+                border-color: {colors['highlight']};
+            }}
+
+            QCheckBox::indicator:hover,
+            QRadioButton::indicator:hover {{
+                border-color: {colors['overlay0']};
+            }}
+
+            /* ======== Sliders ======== */
+            QSlider::groove:horizontal {{
+                background: {colors['surface1']};
+                height: 6px;
+                border-radius: 3px;
+            }}
+
+            QSlider::handle:horizontal {{
+                background: {colors['highlight']};
+                border: 2px solid {colors['surface1']};
+                width: 20px;
+                height: 20px;
+                margin: -8px 0;
+                border-radius: 10px;
+            }}
+
+            /* ======== Progress Bars ======== */
+            QProgressBar {{
+                background: {colors['alternate_base']};
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius - 2}px;
+                text-align: center;
+                color: {colors['text']};
+            }}
+
+            QProgressBar::chunk {{
+                background: {colors['highlight']};
+                border-radius: {radius - 4}px;
+                margin: 2px;
+            }}
+
+            /* ======== Tabs ======== */
+            QTabWidget {{
+                background: transparent;
+            }}
+
+            QTabWidget::pane {{
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius}px;
+                margin-top: 8px;
+                background: {colors['alternate_base']};
+            }}
+
+            QTabBar::tab {{
+                background: {colors['button']};
+                color: {colors['text']};
+                padding: 14px 28px;
+                border-top-left-radius: {radius}px;
+                border-top-right-radius: {radius}px;
+                border: 2px solid transparent;
+                margin-right: 6px;
+                font-weight: 500;
+            }}
+
+            QTabBar::tab:selected {{
+                background: {colors['highlight']};
+                color: {colors['highlight_text']};
+                border-color: {colors['surface1']};
+            }}
+
+            /* ======== Data Visualization ======== */
+            QChartView {{
+                background: {colors['alternate_base']};
+                border-radius: {radius}px;
+                border: 2px solid {colors['surface1']};
+            }}
+
+            /* ======== Lists & Trees ======== */
+            QListWidget, QTreeView {{
+                background: {colors['alternate_base']};
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius}px;
+                padding: 6px;
+                outline: 0;
+            }}
+
+            QListWidget::item, QTreeWidget::item {{
+                background: {colors['surface1']};
+                color: {colors['button_text']};
+                padding: 12px;
+                border-radius: {radius - 4}px;
+                margin: 4px;
+            }}
+
+            QListWidget::item:hover,
+            QTreeWidget::item:hover {{
+                background: {colors['tooltip_base']};
+                border-color: {colors['overlay0']};
+            }}
+
+            QListWidget::item:selected,
+            QTreeWidget::item:selected {{
+                background: {colors['highlight']};
+                color: {colors['highlight_text']};
+            }}
+
+            /* ======== Scrollbars ======== */
+            QScrollBar:vertical {{
+                background: {colors['base']};
+                width: 14px;
+                border-radius: {radius}px;
+            }}
+
+            QScrollBar::handle:vertical {{
+                background: {colors['surface1']};
+                min-height: 40px;
+                border-radius: {radius}px;
+                margin: 4px;
+            }}
+
+            QScrollBar:horizontal {{
+                background: {colors['base']};
+                height: 14px;
+                border-radius: {radius}px;
+            }}
+
+            QScrollBar::handle:horizontal {{
+                background: {colors['surface1']};
+                min-width: 40px;
+                border-radius: {radius}px;
+                margin: 4px;
+            }}
+        """
+        app.setStyleSheet(stylesheet)
+
+    @classmethod
+    def apply_chart_theme(cls, chart: QChart) -> None:
+        """Apply Catppuccin styling to charts."""
+        colors = cls._CATPPUCCIN_PALETTE
+
+        chart.setBackgroundBrush(Qt.GlobalColor.transparent)
+        chart.setBackgroundPen(QPen(Qt.GlobalColor.transparent))
+
+        chart.setPlotAreaBackgroundBrush(QColor(colors["alternate_base"]))
+        chart.setPlotAreaBackgroundVisible(True)
+
+        title_font = QFont("Inter", cls._BASE_FONT_SIZE + 8)
+        title_font.setWeight(QFont.Weight.ExtraBold)
+        chart.setTitleFont(title_font)
+        chart.setTitleBrush(QColor(colors["highlight"]))
+
+        title_shadow = QGraphicsDropShadowEffect()
+        title_shadow.setBlurRadius(15)
+        title_shadow.setColor(QColor(colors["base"]))
+        title_shadow.setOffset(2, 2)
+
+        axis_color = colors["text"]
+        axis_pen = QPen(axis_color)
+        axis_pen.setWidth(2)
+
+        grid_pen = QPen(QColor(colors["surface1"]))
+        grid_pen.setWidth(1)
+        minor_grid_pen = QPen(QColor(colors["base"]))
+        minor_grid_pen.setWidth(1)
+
+        for axis in chart.axes():
+            if isinstance(axis, (QValueAxis, QBarCategoryAxis)):
+                axis.setLabelsColor(QColor(axis_color))
+                axis.setTitleBrush(QColor(axis_color))
+                axis.setLinePen(axis_pen)
+                axis.setGridLinePen(grid_pen)
+                axis.setMinorGridLinePen(minor_grid_pen)
+
+        for series in chart.series():
+            if isinstance(series, QBarSeries):
+                for i, bar_set in enumerate(series.barSets()):
+                    color = QColor(
+                        colors["graph_colors"][i % len(colors["graph_colors"])]
+                    )
+                    bar_set.setBrush(color)
+                    bar_set.setPen(QPen(color.darker(120), 1))
+
+        legend = chart.legend()
+        if legend:
+            legend.setLabelColor(QColor(colors["text"]))
+            legend.setMarkerShape(QLegend.MarkerShape.MarkerShapeCircle)
+            legend.setBackgroundVisible(False)
+            legend.setPen(QPen(Qt.GlobalColor.transparent))
+
+    @classmethod
+    def apply_adaptive_styles(cls, app: QApplication) -> None:
+        """Enhanced adaptive styling for different devices."""
+        if cls.is_tablet_device(app):
+            tablet_css = f"""
+                QWidget {{
+                    font-size: {cls._TABLET_FONT_SIZE}px;
+                }}
+
+                QPushButton, QTabBar::tab {{
+                    padding: 18px 36px;
+                    min-width: 160px;
+                }}
+
+                QLineEdit, QComboBox {{
+                    min-height: 56px;
+                    padding: 16px;
+                }}
+
+                QListWidget::item {{
+                    padding: 20px;
+                    min-height: 64px;
+                }}
+
+                QChartView {{
+                    min-height: 480px;
+                }}
+            """
+            app.setStyleSheet(app.styleSheet() + tablet_css)
+
+    @staticmethod
+    def is_tablet_device(app: QApplication) -> bool:
+        """Determine if device is tablet-sized."""
+        screen = app.primaryScreen()
+        diag = (screen.size().width()**2 + screen.size().height()**2)**0.5
+        diag_inch = diag / screen.logicalDotsPerInch()
+        return diag_inch <= DarkTheme._TABLET_DIAGONAL_INCH
 
 
 class ValidationError(Exception):
@@ -307,19 +678,34 @@ class AppModel(QObject):
     ) -> None:
         """Ensure poll title meets requirements."""
         if not title.strip():
-            raise ValidationError(_("Poll title cannot be empty"), "title")
+            raise ValidationError(
+                _("Poll title cannot be empty"),
+                "title"
+            )
         if title in existing_titles:
-            raise ValidationError(_("Poll title must be unique"), "title")
+            raise ValidationError(
+                _("Poll title must be unique"),
+                "title"
+            )
 
     @staticmethod
     def _validate_options(options: List[str]) -> None:
         """Validate option list integrity."""
         if len(options) < 2:
-            raise ValidationError(_("Minimum 2 options required"), "options")
+            raise ValidationError(
+                _("Minimum 2 options required"),
+                "options"
+            )
         if any(not opt.strip() for opt in options):
-            raise ValidationError(_("Options cannot be empty"), "options")
+            raise ValidationError(
+                _("Options cannot be empty"),
+                "options"
+            )
         if len(options) != len(set(options)):
-            raise ValidationError(_("Duplicate options detected"), "options")
+            raise ValidationError(
+                _("Duplicate options detected"),
+                "options"
+            )
 # endregion
 
 # region VIEWS
@@ -355,18 +741,11 @@ class MainView(QWidget):
         self.setWindowTitle(_("Voting System"))
         main_layout = QVBoxLayout()
 
-        # Status display
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet(
-            "background: #4b4b4b; padding: 5px; color: white;"
-        )
 
-        # Poll list
         self._create_poll_list()
-        # User section
         self._create_user_group()
-        # Admin controls
         self._create_admin_group()
 
         main_layout.addWidget(self.status_label)
@@ -407,29 +786,33 @@ class MainView(QWidget):
         self.admin_group = QGroupBox(_("Admin Panel"))
         layout = QVBoxLayout()
 
-        # Login controls
         self.admin_login_btn = QPushButton(_("Login"))
         self.admin_login_btn.clicked.connect(
             self.admin_login_requested.emit
         )
 
-        # Poll management
         self.add_poll_btn = QPushButton(_("Create Poll"))
-        self.add_poll_btn.clicked.connect(self.add_poll_requested.emit)
+        self.add_poll_btn.clicked.connect(
+            self.add_poll_requested.emit
+        )
         self.add_poll_btn.setVisible(False)
 
         self.edit_poll_btn = QPushButton(_("Edit Poll"))
-        self.edit_poll_btn.clicked.connect(self._on_edit_poll)
+        self.edit_poll_btn.clicked.connect(
+            self._on_edit_poll
+        )
         self.edit_poll_btn.setVisible(False)
 
-        # Results viewing
         self.results_btn = QPushButton(_("View Results"))
-        self.results_btn.clicked.connect(self._show_results)
+        self.results_btn.clicked.connect(
+            self._show_results
+        )
         self.results_btn.setVisible(False)
 
-        # Session management
         self.logout_btn = QPushButton(_("Logout"))
-        self.logout_btn.clicked.connect(self._confirm_logout)
+        self.logout_btn.clicked.connect(
+            self._confirm_logout
+        )
         self.logout_btn.setVisible(False)
 
         layout.addWidget(self.admin_login_btn)
@@ -470,7 +853,6 @@ class MainView(QWidget):
         }
         new_titles = {poll.title for poll in polls}
 
-        # Remove obsolete polls
         for title in current_titles - new_titles:
             items = self.poll_list.findItems(
                 title,
@@ -479,7 +861,6 @@ class MainView(QWidget):
             for item in items:
                 self.poll_list.takeItem(self.poll_list.row(item))
 
-        # Add new polls
         for poll in polls:
             if poll.title not in current_titles:
                 item = QListWidgetItem(poll.title)
@@ -680,8 +1061,6 @@ class VotingView(BaseView):
             self._create_options_list(main_layout)
             self._create_buttons(main_layout)
 
-        self._apply_styles()
-
     def _create_form(self, layout: QVBoxLayout) -> None:
         """Build user input form for voting."""
         form = QFormLayout()
@@ -719,37 +1098,6 @@ class VotingView(BaseView):
         btn_layout.addWidget(self.vote_btn)
         layout.addLayout(btn_layout)
 
-    def _apply_styles(self) -> None:
-        """Apply consistent styling to UI components."""
-        self.setStyleSheet("""
-            QChartView {
-                background-color: #f5f5f5;
-                border-radius: 5px;
-                padding: 10px;
-            }
-            QListWidget {
-                background-color: #ffffff;
-                border: 1px solid #cccccc;
-                border-radius: 4px;
-                padding: 5px;
-            }
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
-
     def showEvent(self, event: QShowEvent) -> None:
         """Handle window display event to initialize chart."""
         if self.readonly and not self._chart_initialized:
@@ -762,7 +1110,7 @@ class VotingView(BaseView):
         """Initialize chart properties and axes."""
         self.chart = QChart()
         self.chart.setBackgroundRoundness(10)
-        self.chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
+        DarkTheme.apply_chart_theme(self.chart)
         self.chart_view.setChart(self.chart)
 
     def _update_chart(self) -> None:
@@ -773,7 +1121,6 @@ class VotingView(BaseView):
             self.chart.removeAxis(axis)
 
         bar_set = QBarSet(_("Votes"))
-        bar_set.setColor("#2196F3")
         values = list(self.poll.options.values())
         bar_set.append(values)
 
@@ -802,6 +1149,8 @@ class VotingView(BaseView):
         self.chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
         series.attachAxis(axis_x)
         series.attachAxis(axis_y)
+
+        DarkTheme.apply_chart_theme(self.chart)
 
     def _update_options(self) -> None:
         """Refresh options list display with current data."""
@@ -850,7 +1199,6 @@ class VotingView(BaseView):
 
             self.vote_submitted.emit(user_id, option)
         except ValidationError as e:
-            self._highlight_error(e.field)
             QMessageBox.warning(self, _("Error"), e.message)
         finally:
             self.vote_btn.setEnabled(True)
@@ -860,23 +1208,6 @@ class VotingView(BaseView):
         if item := self.options_list.currentItem():
             return item.text().split(":")[0].strip()
         return None
-
-    def _highlight_error(self, field: Optional[str]) -> None:
-        """Visually indicate invalid form fields."""
-        if field is None:
-            return
-
-        highlight_map = {
-            "user_id": self.user_id_input,
-            "option": self.options_list
-        }
-
-        if widget := highlight_map.get(field):
-            def clear_highlight() -> None:
-                widget.setStyleSheet("")
-
-            widget.setStyleSheet("border: 2px solid red;")
-            QTimer.singleShot(2000, clear_highlight)
 # endregion
 
 # region CONTROLLERS
@@ -1188,6 +1519,8 @@ class VotingController(BaseController):
 # region MAIN
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    DarkTheme.apply_theme(app)
+    DarkTheme.apply_adaptive_styles(app)
     container = Container()
     controller = MainController(
         model=container.model(),
