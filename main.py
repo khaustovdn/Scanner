@@ -44,7 +44,10 @@ from PySide6.QtCore import (
     Signal,
     SignalInstance,
     QTimer,
-    QMetaObject
+    QMetaObject,
+    QTranslator,
+    QLocale,
+    QLibraryInfo
 )
 from PySide6.QtGui import (
     QPainter,
@@ -1975,14 +1978,14 @@ class AdminAuthController(BaseController):
             self.view.close()
             QMessageBox.information(
                 self.view,
-                "Success",
-                "Logged in as administrator"
+                "Успешно",
+                "Вы вошли за администратора"
             )
         else:
             QMessageBox.warning(
                 self.view,
-                "Error",
-                "Invalid administrator credentials"
+                "Ошибка",
+                "Неверный логин или пароль"
             )
 
 
@@ -2013,13 +2016,13 @@ class PollCreatorController(BaseController):
             self.view.close()
             QMessageBox.information(
                 self.view,
-                "Success",
-                "Poll created successfully"
+                "Успешно",
+                "Новый опрос создан"
             )
         except ValidationError as e:
             QMessageBox.warning(
                 self.view,
-                "Error",
+                "Ошибка",
                 e.message
             )
 
@@ -2053,13 +2056,13 @@ class PollEditorController(BaseController):
             self.view.close()
             QMessageBox.information(
                 self.view,
-                "Success",
-                "Poll updated successfully"
+                "Успешно",
+                "Опрос изменен"
             )
         except ValidationError as e:
             QMessageBox.warning(
                 self.view,
-                "Error",
+                "Ошибка",
                 e.message
             )
 
@@ -2211,6 +2214,10 @@ class MainController(BaseController):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    translator_qt = QTranslator()
+    path = QLibraryInfo.path(QLibraryInfo.TranslationsPath)    
+    translator_qt.load("qt_ru.qm", path)  # Или "qtbase_ru.qm" для новых версий
+    app.installTranslator(translator_qt)
     Config.ENCODINGS_DIR.mkdir(exist_ok=True, parents=True)
     container = Container()
     controller = MainController(
