@@ -36,7 +36,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QFormLayout,
-    QGroupBox
+    QGroupBox,
+    QDialog
 )
 from PySide6.QtCore import (
     Qt,
@@ -46,12 +47,13 @@ from PySide6.QtCore import (
     QTimer,
     QMetaObject,
     QTranslator,
-    QLocale,
     QLibraryInfo
 )
 from PySide6.QtGui import (
     QPainter,
-    QShowEvent
+    QShowEvent,
+    QImage,
+    QPixmap
 )
 from PySide6.QtCharts import (
     QChart,
@@ -373,18 +375,45 @@ class FrameProcessor:
     ) -> None:
         self.locator = locator
 
-    def is_centered(
+    def check_centering(
         self,
         centroid: Tuple[int, int],
         frame_dims: Tuple[int, int]
-    ) -> bool:
+    ) -> dict:
         frame_w, frame_h = frame_dims
-        dx = abs(centroid[0] - frame_w / 2) / frame_w
-        dy = abs(centroid[1] - frame_h / 2) / frame_h
-        return (
-            dx <= Config.CENTER_TH
-            and dy <= Config.CENTER_TH
-        )
+        dx = (centroid[0] - frame_w / 2) / frame_w
+        dy = (centroid[1] - frame_h / 2) / frame_h
+
+        return {
+            "centered_x": abs(dx) <= Config.CENTER_TH,
+            "centered_y": abs(dy) <= Config.CENTER_TH,
+            "direction_x": "влево" if dx > 0 else "вправо" if dx < 0 else None,
+            "direction_y": "вверх" if dy > 0 else "вниз" if dy < 0 else None
+        }
+
+    def get_face_feedback(
+        self,
+        frame: NDArray[np.uint8],
+        location: Tuple[int, int, int, int]
+    ) -> dict:
+        top, right, bottom, left = location
+        height, width = frame.shape[:2]
+        centroid = ((left + right) // 2, (top + bottom) // 2)
+
+        centering = self.check_centering(centroid, (width, height))
+        size_ok = self.has_sufficient_size(location, (width, height))
+        face_region = frame[top:bottom, left:right]
+
+        return {
+            "centered_x": centering["centered_x"],
+            "centered_y": centering["centered_y"],
+            "direction_x": centering["direction_x"],
+            "direction_y": centering["direction_y"],
+            "size": "Приблизьтесь" if not size_ok else None,
+            "sharpness": "Держите камеру неподвижно" if not self.is_sharp(face_region) else None,
+            "brightness": "Увеличьте освещение" if not self.is_bright(face_region) else None,
+            "contrast": "Улучшите контраст" if not self.has_contrast(face_region) else None
+        }
 
     @staticmethod
     def is_sharp(image: NDArray[np.uint8]) -> bool:
@@ -478,6 +507,71 @@ class FrameProcessor:
         )
 
         return aligned.astype(np.uint8)
+
+
+class FaceCaptureDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройте положение лица")
+
+        self.main_layout = QVBoxLayout()
+        self.image_label = QLabel()
+
+        self.main_layout.addWidget(self.image_label)
+        self.setLayout(self.main_layout)
+
+        self.camera = CameraCapture()
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)
+        self.selected_frame = None
+        self.detector = DetectionEngine()
+        self.processor = FrameProcessor(self.detector)
+
+    def update_frame(self):
+        frame = self.camera.read()
+        if frame is None:
+            return
+
+        faces = self.detector.locate_faces(frame)
+        display_frame = frame.copy()
+
+        if len(faces) == 1:
+            loc = faces[0]
+            feedback = self.processor.get_face_feedback(frame, loc)
+
+            if all([
+                feedback["centered_x"],
+                feedback["centered_y"],
+                not feedback["size"],
+                not feedback["sharpness"],
+                not feedback["brightness"],
+                not feedback["contrast"]
+            ]):
+                self.selected_frame = frame.copy()
+                self.accept()
+
+        self._display_image(display_frame)
+
+    def _display_image(self, frame):
+        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+
+        q_image = QImage(
+            rgb_image.data,
+            w,
+            h,
+            bytes_per_line,
+            QImage.Format.Format_RGB888
+        )
+
+        pixmap = QPixmap.fromImage(q_image)
+        self.image_label.setPixmap(pixmap)
+
+    def closeEvent(self, event):
+        self.camera.release()
+        super().closeEvent(event)
 
 
 class CameraCapture(FrameCapture):
@@ -711,17 +805,14 @@ class RecognitionPipeline:
         center_y = (location[0] + location[2]) // 2
         height, width = frame.shape[:2]
 
+        centering = self.frame_processor.check_centering(
+            centroid=(center_x, center_y),
+            frame_dims=(width, height)
+        )
+        is_centered = centering["centered_x"] and centering["centered_y"]
+
         return (
-            self.frame_processor.is_centered(
-                centroid=(
-                    center_x,
-                    center_y
-                ),
-                frame_dims=(
-                    width,
-                    height
-                )
-            )
+            is_centered
             and self.frame_processor.is_sharp(
                 frame[
                     location[0]:location[2],
@@ -1853,26 +1944,28 @@ class VotingView(BaseView):
             self.vote_btn.setEnabled(True)
 
     def _process_vote(self) -> None:
-        option = self._get_selected_option()
-        if not option:
-            raise ValidationError(
-                "Выберите вариант",
-                "option"
-            )
+        selected_option = self._get_selected_option()
+        if not selected_option:
+            QMessageBox.warning(self, "Ошибка", "Выберите вариант для голосования")
+            return
 
-        with CameraCapture() as camera:
-            frame = camera.read()
-            if frame is None:
-                raise ValidationError(
-                    "Не удалось получить изображение"
-                )
+        dialog = FaceCaptureDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
 
+        if not self.poll.add_vote(selected_option):
+            raise ValidationError("Ошибка сохранения голоса")
+
+        frame = dialog.selected_frame
+        if frame is None:
+            QMessageBox.warning(self, "Ошибка", "Не удалось получить изображение")
+            return
+
+        try:
             detector = DetectionEngine()
             faces = detector.locate_faces(frame)
             if len(faces) != 1:
-                raise ValidationError(
-                    "Должно быть видно одно лицо"
-                )
+                raise ValidationError("Должно быть видно одно лицо")
 
             top, right, bottom, left = faces[0]
             face_img = frame[top:bottom, left:right]
@@ -1880,39 +1973,38 @@ class VotingView(BaseView):
             processor = FrameProcessor(detector)
             aligned = processor.align_face(face_img)
             if aligned is None:
-                raise ValidationError(
-                    "Ошибка выравнивания лица"
-                )
+                raise ValidationError("Ошибка выравнивания лица")
 
             encoder = EncodingEngine()
             encodings = encoder.generate_encodings(aligned)
             if not encodings:
-                raise ValidationError(
-                    "Ошибка генерации данных лица"
-                )
+                raise ValidationError("Ошибка генерации данных лица")
 
             encoding = encodings[0]
             known = [e["encoding"] for e in self.poll.database]
 
             if encoder.match_features(known, encoding, Config.TOLERANCE):
-                raise ValidationError(
-                    "Вы уже голосовали в этом опросе"
-                )
+                raise ValidationError("Вы уже голосовали в этом опросе")
 
             self.poll.database.add_entry(encoding)
             self.poll.database.save()
 
-            if not self.poll.add_vote(option):
-                raise ValidationError(
-                    "Ошибка сохранения голоса"
-                )
+            selected_option = self._get_selected_option()
 
-            QMessageBox.information(
-                self,
-                "Успех",
-                "Голос успешно зарегистрирован"
-            )
-            self.options_list.clearSelection()
+            if not selected_option:
+                return
+
+            if not self.poll.add_vote(selected_option):
+                raise ValidationError("Ошибка сохранения голоса")
+
+            QMessageBox.information(self, "Успех", "Голос успешно зарегистрирован")
+            self._update_view()
+
+        except ValidationError as e:
+            QMessageBox.warning(self, "Ошибка", str(e))
+        except Exception as e:
+            self.logger.error("VotingView", "Ошибка: %s", str(e))
+            QMessageBox.critical(self, "Ошибка", "Произошла непредвиденная ошибка")
 
     def _get_selected_option(self) -> Optional[str]:
         if item := self.options_list.currentItem():
@@ -2215,8 +2307,8 @@ class MainController(BaseController):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     translator_qt = QTranslator()
-    path = QLibraryInfo.path(QLibraryInfo.TranslationsPath)    
-    translator_qt.load("qt_ru.qm", path)  # Или "qtbase_ru.qm" для новых версий
+    path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    translator_qt.load("qt_ru.qm", path)
     app.installTranslator(translator_qt)
     Config.ENCODINGS_DIR.mkdir(exist_ok=True, parents=True)
     container = Container()
