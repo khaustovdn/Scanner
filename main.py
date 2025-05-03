@@ -604,6 +604,11 @@ class FaceDatabase(FaceStorage):
     def __iter__(self) -> Iterator[dict]:
         return iter(self._entries)
 
+    def rollback_last_entry(self) -> None:
+        with self._lock:
+            if self._entries:
+                self._entries.pop()
+
     def load(self) -> None:
         try:
             if not self._storage_path.exists():
@@ -2330,9 +2335,6 @@ class VotingView(BaseView):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        if not self.poll.add_vote(selected_option):
-            raise ValidationError("Ошибка сохранения голоса")
-
         frame = dialog.selected_frame
         if frame is None:
             QMessageBox.warning(self, "Ошибка", "Не удалось получить изображение")
@@ -2342,7 +2344,7 @@ class VotingView(BaseView):
             detector = DetectionEngine()
             faces = detector.locate_faces(frame)
             if len(faces) != 1:
-                raise ValidationError("Должно быть видно одно лицо")
+                raise ValidationError("Должно быть видно ровно одно лицо")
 
             top, right, bottom, left = faces[0]
             face_img = frame[top:bottom, left:right]
@@ -2358,29 +2360,24 @@ class VotingView(BaseView):
                 raise ValidationError("Ошибка генерации данных лица")
 
             encoding = encodings[0]
-            known = [e["encoding"] for e in self.poll.database]
+            known_encodings = [e["encoding"] for e in self.poll.database]
 
-            if encoder.match_features(known, encoding, Config.TOLERANCE):
+            if encoder.match_features(known_encodings, encoding, Config.TOLERANCE):
                 raise ValidationError("Вы уже голосовали в этом опросе")
 
             self.poll.database.add_entry(encoding)
-            self.poll.database.save()
-
-            selected_option = self._get_selected_option()
-
-            if not selected_option:
-                return
-
             if not self.poll.add_vote(selected_option):
+                self.poll.database.rollback_last_entry()
                 raise ValidationError("Ошибка сохранения голоса")
 
+            self.poll.database.save()
             QMessageBox.information(self, "Успех", "Голос успешно зарегистрирован")
             self._update_view()
 
         except ValidationError as e:
             QMessageBox.warning(self, "Ошибка", str(e))
         except Exception as e:
-            self.logger.error("VotingView", "Ошибка: %s", str(e))
+            self.logger.error("VotingView", f"Ошибка: {str(e)}")
             QMessageBox.critical(self, "Ошибка", "Произошла непредвиденная ошибка")
 
     def _get_selected_option(self) -> Optional[str]:
