@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QListWidget,
+    QGraphicsDropShadowEffect,
     QListWidgetItem,
     QMessageBox,
     QFormLayout,
@@ -52,13 +53,18 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QPainter,
     QShowEvent,
+    QFont,
     QImage,
-    QPixmap
+    QPalette,
+    QPen,
+    QPixmap,
+    QColor
 )
 from PySide6.QtCharts import (
     QChart,
     QChartView,
     QBarSet,
+    QLegend,
     QBarSeries,
     QValueAxis,
     QBarCategoryAxis
@@ -69,6 +75,377 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+
+class DarkTheme:
+    """Catppuccin Mocha dark theme with enhanced visual design system."""
+
+    _LATTE_PALETTE = {
+        # Основа и фон
+        "base": "#fff8f2",            # Тёплый молочно-белый (как сливочный крем)
+        "alternate_base": "#f5e9de",  # Очень светлый бежевый (как капучино)
+        "surface1": "#f0e4d5",        # Тёплый песочный (лёгкая текстура)
+
+        # Текст и контент
+        "text": "#5a4a42",            # Мягкий кофейно-коричневый (читаемый, но не резкий)
+        "disabled_text": "#a89f94",   # Приглушенный серо-бежевый
+        "highlight_text": "#fff8f2",  # Светлый кремовый (текст на акцентных элементах)
+        "bright_text": "#d18673",     # Тёплый коралловый (для выделения)
+
+        # Акценты и интерактивные элементы
+        "highlight": "#e8a87c",       # Персиково-медовый (главный акцент)
+        "button": "#f0d8c0",          # Светло-бежевый (кнопки)
+        "button_text": "#5a4a42",     # Кофейный (как основной текст)
+        "tooltip_base": "#e7d5c0",    # Тёплый молочный (подсказки)
+
+        # Дополнительные цвета
+        "overlay0": "#c8b6a8",        # Нейтральный бежево-серый
+
+        # Графика и диаграммы (пастельные, но насыщенные)
+        "graph_colors": [
+            "#e8a87c",  # Персиковый (как highlight)
+            "#d4b8a6",  # Пудрово-розовый
+            "#a7c4bc",  # Мятно-молочный
+            "#e8c2a2",  # Тёплый песочный
+            "#d18673",  # Коралловый (как bright_text)
+            "#b8a58e",  # Серо-бежевый
+        ]
+    }
+
+    _BASE_FONT_SIZE = 16
+    _TABLET_FONT_SIZE = 18
+    _TABLET_DIAGONAL_INCH = 9
+    _CORNER_RADIUS = 10
+
+    @classmethod
+    def apply_theme(cls, app: QApplication) -> None:
+        """Apply refined Catppuccin Mocha theme with design system."""
+        palette = app.palette()
+        colors = cls._LATTE_PALETTE
+
+        role_mappings = {
+            QPalette.ColorRole.Window: colors["base"],
+            QPalette.ColorRole.WindowText: colors["text"],
+            QPalette.ColorRole.Base: colors["base"],
+            QPalette.ColorRole.AlternateBase: colors["alternate_base"],
+            QPalette.ColorRole.ToolTipBase: colors["tooltip_base"],
+            QPalette.ColorRole.ToolTipText: colors["text"],
+            QPalette.ColorRole.Text: colors["text"],
+            QPalette.ColorRole.Button: colors["button"],
+            QPalette.ColorRole.ButtonText: colors["button_text"],
+            QPalette.ColorRole.BrightText: colors["bright_text"],
+            QPalette.ColorRole.Highlight: colors["highlight"],
+            QPalette.ColorRole.HighlightedText: colors["highlight_text"],
+        }
+
+        for role, color in role_mappings.items():
+            palette.setColor(role, QColor(color))
+
+        app.setPalette(palette)
+        cls._apply_stylesheet(app)
+        cls.apply_adaptive_styles(app)
+
+    @classmethod
+    def _apply_stylesheet(cls, app: QApplication) -> None:
+        """Apply refined styling with design system consistency."""
+        colors = cls._LATTE_PALETTE
+        radius = cls._CORNER_RADIUS
+        stylesheet = f"""
+            /* ======== Global Styles ======== */
+            QWidget {{
+                font-family: "Inter", "Segoe UI", system-ui;
+                font-size: {cls._BASE_FONT_SIZE}px;
+                color: {colors['text']};
+                background: {colors['base']};
+            }}
+
+            /* ======== Typography ======== */
+            QLabel {{
+                font-weight: 450;
+                padding: 4px 0;
+            }}
+
+            QLabel[important="true"] {{
+                font-size: {cls._BASE_FONT_SIZE + 2}px;
+                font-weight: 600;
+                color: {colors['highlight']};
+            }}
+
+            /* ======== Buttons ======== */
+            QPushButton {{
+                background: {colors['button']};
+                color: {colors['button_text']};
+                padding: 12px 24px;
+                border-radius: {radius}px;
+                border: 1px solid {colors['surface1']};
+                min-width: 120px;
+            }}
+
+            QPushButton:hover {{
+                background: {colors['surface1']};
+                border-color: {colors['overlay0']};
+            }}
+
+            QPushButton:pressed {{
+                background: {colors['highlight']};
+                color: {colors['highlight_text']};
+            }}
+
+            /* ======== Form Elements ======== */
+            QLineEdit, QTextEdit, QComboBox {{
+                background: {colors['alternate_base']};
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius - 2}px;
+                padding: 12px;
+                selection-background-color: {colors['highlight']};
+                font: inherit;
+            }}
+
+            QLineEdit:focus, QComboBox:focus {{
+                border-color: {colors['highlight']};
+            }}
+
+            /* ======== Checkboxes & Radio ======== */
+            QCheckBox, QRadioButton {{
+                spacing: 8px;
+                color: {colors['text']};
+            }}
+
+            QCheckBox::indicator, QRadioButton::indicator {{
+                width: 20px;
+                height: 20px;
+                border: 2px solid {colors['surface1']};
+                border-radius: 4px;
+                background: {colors['alternate_base']};
+            }}
+
+            QCheckBox::indicator:checked,
+            QRadioButton::indicator:checked {{
+                background: {colors['highlight']};
+                border-color: {colors['highlight']};
+            }}
+
+            QCheckBox::indicator:hover,
+            QRadioButton::indicator:hover {{
+                border-color: {colors['overlay0']};
+            }}
+
+            /* ======== Sliders ======== */
+            QSlider::groove:horizontal {{
+                background: {colors['surface1']};
+                height: 6px;
+                border-radius: 3px;
+            }}
+
+            QSlider::handle:horizontal {{
+                background: {colors['highlight']};
+                border: 2px solid {colors['surface1']};
+                width: 20px;
+                height: 20px;
+                margin: -8px 0;
+                border-radius: 10px;
+            }}
+
+            /* ======== Progress Bars ======== */
+            QProgressBar {{
+                background: {colors['alternate_base']};
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius - 2}px;
+                text-align: center;
+                color: {colors['text']};
+            }}
+
+            QProgressBar::chunk {{
+                background: {colors['highlight']};
+                border-radius: {radius - 4}px;
+                margin: 2px;
+            }}
+
+            /* ======== Tabs ======== */
+            QTabWidget {{
+                background: transparent;
+            }}
+
+            QTabWidget::pane {{
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius}px;
+                margin-top: 8px;
+                background: {colors['alternate_base']};
+            }}
+
+            QTabBar::tab {{
+                background: {colors['button']};
+                color: {colors['text']};
+                padding: 14px 28px;
+                border-top-left-radius: {radius}px;
+                border-top-right-radius: {radius}px;
+                border: 2px solid transparent;
+                margin-right: 6px;
+                font-weight: 500;
+            }}
+
+            QTabBar::tab:selected {{
+                background: {colors['highlight']};
+                color: {colors['highlight_text']};
+                border-color: {colors['surface1']};
+            }}
+
+            /* ======== Data Visualization ======== */
+            QChartView {{
+                background: {colors['alternate_base']};
+                border-radius: {radius}px;
+                border: 2px solid {colors['surface1']};
+            }}
+
+            /* ======== Lists & Trees ======== */
+            QListWidget, QTreeView {{
+                background: {colors['alternate_base']};
+                border: 2px solid {colors['surface1']};
+                border-radius: {radius}px;
+                padding: 6px;
+                outline: 0;
+            }}
+
+            QListWidget::item, QTreeWidget::item {{
+                background: {colors['surface1']};
+                color: {colors['button_text']};
+                padding: 12px;
+                border-radius: {radius - 4}px;
+                margin: 4px;
+            }}
+
+            QListWidget::item:hover,
+            QTreeWidget::item:hover {{
+                background: {colors['tooltip_base']};
+                border-color: {colors['overlay0']};
+            }}
+
+            QListWidget::item:selected,
+            QTreeWidget::item:selected {{
+                background: {colors['highlight']};
+                color: {colors['highlight_text']};
+            }}
+
+            /* ======== Scrollbars ======== */
+            QScrollBar:vertical {{
+                background: {colors['base']};
+                width: 14px;
+                border-radius: {radius}px;
+            }}
+
+            QScrollBar::handle:vertical {{
+                background: {colors['surface1']};
+                min-height: 40px;
+                border-radius: {radius}px;
+                margin: 4px;
+            }}
+
+            QScrollBar:horizontal {{
+                background: {colors['base']};
+                height: 14px;
+                border-radius: {radius}px;
+            }}
+
+            QScrollBar::handle:horizontal {{
+                background: {colors['surface1']};
+                min-width: 40px;
+                border-radius: {radius}px;
+                margin: 4px;
+            }}
+        """
+        app.setStyleSheet(stylesheet)
+
+    @classmethod
+    def apply_chart_theme(cls, chart: QChart) -> None:
+        """Apply Catppuccin styling to charts."""
+        colors = cls._LATTE_PALETTE
+
+        chart.setBackgroundBrush(Qt.GlobalColor.transparent)
+        chart.setBackgroundPen(QPen(Qt.GlobalColor.transparent))
+
+        chart.setPlotAreaBackgroundBrush(QColor(colors["alternate_base"]))
+        chart.setPlotAreaBackgroundVisible(True)
+
+        title_font = QFont("Inter", cls._BASE_FONT_SIZE + 8)
+        title_font.setWeight(QFont.Weight.ExtraBold)
+        chart.setTitleFont(title_font)
+        chart.setTitleBrush(QColor(colors["highlight"]))
+
+        title_shadow = QGraphicsDropShadowEffect()
+        title_shadow.setBlurRadius(15)
+        title_shadow.setColor(QColor(colors["base"]))
+        title_shadow.setOffset(2, 2)
+
+        axis_color = colors["text"]
+        axis_pen = QPen(axis_color)
+        axis_pen.setWidth(2)
+
+        grid_pen = QPen(QColor(colors["surface1"]))
+        grid_pen.setWidth(1)
+        minor_grid_pen = QPen(QColor(colors["base"]))
+        minor_grid_pen.setWidth(1)
+
+        for axis in chart.axes():
+            if isinstance(axis, (QValueAxis, QBarCategoryAxis)):
+                axis.setLabelsColor(QColor(axis_color))
+                axis.setTitleBrush(QColor(axis_color))
+                axis.setLinePen(axis_pen)
+                axis.setGridLinePen(grid_pen)
+                axis.setMinorGridLinePen(minor_grid_pen)
+
+        for series in chart.series():
+            if isinstance(series, QBarSeries):
+                for i, bar_set in enumerate(series.barSets()):
+                    color = QColor(
+                        colors["graph_colors"][i % len(colors["graph_colors"])]
+                    )
+                    bar_set.setBrush(color)
+                    bar_set.setPen(QPen(color.darker(120), 1))
+
+        legend = chart.legend()
+        if legend:
+            legend.setLabelColor(QColor(colors["text"]))
+            legend.setMarkerShape(QLegend.MarkerShape.MarkerShapeCircle)
+            legend.setBackgroundVisible(False)
+            legend.setPen(QPen(Qt.GlobalColor.transparent))
+
+    @classmethod
+    def apply_adaptive_styles(cls, app: QApplication) -> None:
+        """Enhanced adaptive styling for different devices."""
+        if cls.is_tablet_device(app):
+            tablet_css = f"""
+                QWidget {{
+                    font-size: {cls._TABLET_FONT_SIZE}px;
+                }}
+
+                QPushButton, QTabBar::tab {{
+                    padding: 18px 36px;
+                    min-width: 160px;
+                }}
+
+                QLineEdit, QComboBox {{
+                    min-height: 56px;
+                    padding: 16px;
+                }}
+
+                QListWidget::item {{
+                    padding: 20px;
+                    min-height: 64px;
+                }}
+
+                QChartView {{
+                    min-height: 480px;
+                }}
+            """
+            app.setStyleSheet(app.styleSheet() + tablet_css)
+
+    @staticmethod
+    def is_tablet_device(app: QApplication) -> bool:
+        """Determine if device is tablet-sized."""
+        screen = app.primaryScreen()
+        diag = (screen.size().width()**2 + screen.size().height()**2)**0.5
+        diag_inch = diag / screen.logicalDotsPerInch()
+        return diag_inch <= DarkTheme._TABLET_DIAGONAL_INCH
 
 
 class Config:
@@ -2306,6 +2683,8 @@ class MainController(BaseController):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    DarkTheme.apply_theme(app)
+    DarkTheme.apply_adaptive_styles(app)
     translator_qt = QTranslator()
     path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
     translator_qt.load("qt_ru.qm", path)
