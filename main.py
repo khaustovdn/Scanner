@@ -897,7 +897,7 @@ class FaceCaptureDialog(QDialog):
         super().__init__(parent)
 
         self.setWindowTitle("Настройте положение лица")
-        self.setWindowState(Qt.WindowFullScreen)
+        self.setMinimumSize(800, 500)
         self.frame_counter = 0
         self.main_layout = QVBoxLayout()
         self.image_label = QLabel()
