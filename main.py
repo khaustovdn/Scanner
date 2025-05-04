@@ -113,8 +113,8 @@ class DarkTheme:
         ]
     }
 
-    _BASE_FONT_SIZE = 10
-    _TABLET_FONT_SIZE = 10
+    _BASE_FONT_SIZE = 16
+    _TABLET_FONT_SIZE = 16
     _TABLET_DIAGONAL_INCH = 9
     _CORNER_RADIUS = 10
 
@@ -2182,62 +2182,95 @@ class PollEditorView(BaseView):
         super().__init__()
         self.logger = logger
         self.poll = poll
+        self.option_inputs = []  # Список для хранения полей ввода
         self._init_ui()
 
     def _init_ui(self) -> None:
         layout = QFormLayout()
 
+        # Поле для названия опроса
         self.title_input = QLineEdit(self.poll.title)
         self.title_input.setPlaceholderText("Новое название опроса")
+        layout.addRow("Название:", self.title_input)
 
-        self.options_input = QLineEdit(
-            ", ".join(self.poll.options.keys())
-        )
-        self.options_input.setPlaceholderText(
-            "Обновленные варианты (через запятую)"
-        )
+        # Контейнер для вариантов
+        self.options_container = QWidget()
+        self.options_layout = QVBoxLayout()
+        self.options_container.setLayout(self.options_layout)
+        
+        # Заполнение существующих вариантов
+        for option in self.poll.options.keys():
+            self._add_option_field(option)
+        
+        # Кнопка добавления нового варианта
+        self.add_option_btn = QPushButton("Добавить вариант")
+        self.add_option_btn.clicked.connect(lambda: self._add_option_field())
+        layout.addRow("Варианты:", self.options_container)
+        layout.addWidget(self.add_option_btn)
 
+        # Кнопка обновления
         self.update_btn = QPushButton("Обновить")
         self.update_btn.clicked.connect(self._on_update)
-
-        layout.addRow(
-            "Название:",
-            self.title_input
-        )
-        layout.addRow(
-            "Варианты:",
-            self.options_input
-        )
-        layout.addWidget(self.update_btn)
-
+        
+        # Центрирование кнопки
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(self.update_btn)
+        button_layout.addStretch()
+        
+        layout.addRow(button_layout)
         self.setLayout(layout)
 
+    def _add_option_field(self, initial_text: str = ""):
+        """Добавляет новое поле для варианта с кнопкой удаления"""
+        row = QHBoxLayout()
+        
+        input_field = QLineEdit(initial_text)
+        input_field.setPlaceholderText("Введите вариант ответа")
+        self.option_inputs.append(input_field)
+        
+        # Кнопка удаления варианта
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(25, 25)
+        remove_btn.clicked.connect(lambda: self._remove_option(row, input_field))
+        
+        row.addWidget(input_field)
+        row.addWidget(remove_btn)
+        self.options_layout.addLayout(row)
+
+    def _remove_option(self, layout: QHBoxLayout, input_field: QLineEdit):
+        """Удаляет поле варианта из интерфейса"""
+        # Удаляем виджеты из строки
+        while layout.count():
+            child = layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        # Удаляем поле из списка
+        if input_field in self.option_inputs:
+            self.option_inputs.remove(input_field)
+        # Удаляем саму строку из лэйаута
+        self.options_layout.removeItem(layout)
+
     def _on_update(self) -> None:
+        """Обработчик нажатия кнопки обновления"""
         title = self.title_input.text().strip()
-        raw_options = self.options_input.text()
-
+        options = [field.text().strip() for field in self.option_inputs]
+        options = [opt for opt in options if opt]  # Игнорируем пустые
+        
         try:
-            options = [
-                opt.strip()
-                for opt in shlex.split(
-                    raw_options,
-                    posix=False
-                )
-                if opt.strip()
-            ]
-        except ValueError as e:
-            QMessageBox.warning(
-                self,
-                "Ошибка",
-                f"Некорректный формат вариантов: {str(e)}"
-            )
-            return
-
-        self.update_poll.emit(
-            title,
-            options
-        )
-
+            # Валидация данных
+            if not title:
+                raise ValidationError("Название опроса не может быть пустым", "title")
+            if len(options) < 2:
+                raise ValidationError("Требуется минимум 2 варианта", "options")
+            if len(options) != len(set(options)):
+                raise ValidationError("Обнаружены дублирующиеся варианты", "options")
+            
+            self.update_poll.emit(title, options)
+            self.close()
+            
+        except ValidationError as e:
+            QMessageBox.warning(self, "Ошибка", e.message)
 
 class VotingView(BaseView):
     vote_submitted = Signal(str)
