@@ -38,7 +38,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFormLayout,
     QGroupBox,
-    QDialog
+    QDialog,
+    QSizePolicy
 )
 from PySide6.QtCore import (
     Qt,
@@ -48,7 +49,7 @@ from PySide6.QtCore import (
     QTimer,
     QMetaObject,
     QTranslator,
-    QLibraryInfo
+    QLibraryInfo,
 )
 from PySide6.QtGui import (
     QPainter,
@@ -112,8 +113,8 @@ class DarkTheme:
         ]
     }
 
-    _BASE_FONT_SIZE = 16
-    _TABLET_FONT_SIZE = 18
+    _BASE_FONT_SIZE = 10
+    _TABLET_FONT_SIZE = 10
     _TABLET_DIAGONAL_INCH = 9
     _CORNER_RADIUS = 10
 
@@ -894,11 +895,14 @@ class FrameProcessor:
 class FaceCaptureDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Настройте положение лица")
 
+        self.setWindowTitle("Настройте положение лица")
+        self.setWindowState(Qt.WindowFullScreen)
+        self.frame_counter = 0
         self.main_layout = QVBoxLayout()
         self.image_label = QLabel()
-
+        self.image_label.setScaledContents(True)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.main_layout.addWidget(self.image_label)
         self.setLayout(self.main_layout)
 
@@ -961,8 +965,13 @@ class CameraCapture(FrameCapture):
         self,
         scale: float = Config.SCALE
     ) -> None:
-        self._device = cv2.VideoCapture(0)
+        self._device = cv2.VideoCapture(0, cv2.CAP_V4L2)
+        self._device.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self._device.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self._device.set(cv2.CAP_PROP_FPS, 15)
+        self._device.set(cv2.CAP_PROP_BUFFERSIZE, 2) 
 
+        self._device.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
         if not self._device.isOpened():
             raise RuntimeError(
                 "Ошибка инициализации камеры"
@@ -1707,6 +1716,25 @@ class AppModel(QObject):
         self._admin_credentials: Tuple[str, str] = ("admin", "admin")
         self.encoder = EncodingEngine()
 
+    def delete_poll(self, index: int) -> None:
+        if 0 <= index < len(self._polls):
+            removed_poll = self._polls.pop(index)
+            file_path = Config.ENCODINGS_DIR / f"{removed_poll.poll_id}.pkl"
+            try:
+                file_path.unlink()
+                self.logger.info(
+                    "AppModel", 
+                    "Файл опроса %s удален", 
+                    file_path
+                )
+            except Exception as e:
+                self.logger.error(
+                    "AppModel", 
+                    "Ошибка удаления файла: %s", 
+                    str(e)
+                )
+            self.polls_changed.emit()
+
     def create_poll(
         self,
         title: str,
@@ -1849,6 +1877,7 @@ class MainView(QWidget):
     admin_logout_requested = Signal()
     add_poll_requested = Signal()
     edit_poll_requested = Signal(int)
+    delete_poll_requested = Signal(int)
 
     def __init__(
         self,
@@ -1902,6 +1931,18 @@ class MainView(QWidget):
         layout.addWidget(self.vote_btn)
         self.user_group.setLayout(layout)
 
+    def _on_delete_poll(self) -> None:
+        index = self.poll_list.currentRow()
+        if index >= 0:
+            confirm = QMessageBox.question(
+                self,
+                "Подтверждение удаления",
+                "Вы уверены, что хотите удалить выбранный опрос?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if confirm == QMessageBox.StandardButton.Yes:
+                self.delete_poll_requested.emit(index)
+
     def _create_admin_group(self) -> None:
         self.admin_group = QGroupBox("Панель администратора")
         layout = QVBoxLayout()
@@ -1921,6 +1962,10 @@ class MainView(QWidget):
         self.edit_poll_btn.clicked.connect(self._on_edit_poll)
         self.edit_poll_btn.setVisible(False)
 
+        self.delete_poll_btn = QPushButton("Удалить опрос")
+        self.delete_poll_btn.clicked.connect(self._on_delete_poll)
+        self.delete_poll_btn.setVisible(False)
+
         self.results_btn = QPushButton("Результаты")
         self.results_btn.clicked.connect(self._show_results)
         self.results_btn.setVisible(False)
@@ -1929,6 +1974,8 @@ class MainView(QWidget):
         self.logout_btn.clicked.connect(self._confirm_logout)
         self.logout_btn.setVisible(False)
 
+
+        layout.addWidget(self.delete_poll_btn)
         layout.addWidget(self.admin_login_btn)
         layout.addWidget(self.add_poll_btn)
         layout.addWidget(self.edit_poll_btn)
@@ -1991,6 +2038,7 @@ class MainView(QWidget):
         self.edit_poll_btn.setVisible(is_admin)
         self.admin_login_btn.setVisible(not is_admin)
         self.logout_btn.setVisible(is_admin)
+        self.delete_poll_btn.setVisible(is_admin)
 
 
 class AdminAuthView(BaseView):
@@ -2038,64 +2086,90 @@ class AdminAuthView(BaseView):
 class PollCreatorView(BaseView):
     create_poll = Signal(str, list)
 
-    def __init__(
-        self,
-        logger: Logger
-    ) -> None:
+    def __init__(self, logger: Logger):
         super().__init__()
         self.logger = logger
+        self.option_inputs = []  # Хранилище для полей ввода
         self._init_ui()
 
-    def _init_ui(self) -> None:
+    def _init_ui(self):
         layout = QFormLayout()
 
+        # Поле для названия опроса
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("Название опроса")
+        layout.addRow("Название:", self.title_input)
 
-        self.options_input = QLineEdit()
-        self.options_input.setPlaceholderText("Вариант1, Вариант2, ...")
+        # Контейнер для вариантов
+        self.options_container = QWidget()
+        self.options_layout = QVBoxLayout()
+        self.options_container.setLayout(self.options_layout)
+        
+        # Начальные 2 поля
+        self._add_option_field("Вариант 1:")
+        self._add_option_field("Вариант 2:")
+        
+        # Кнопка добавления
+        self.add_option_btn = QPushButton("Добавить вариант")
+        self.add_option_btn.clicked.connect(self._add_option_field)
 
+        layout.addRow("Варианты:", self.options_container)
+        layout.addRow(self.add_option_btn)
+
+        # Кнопка создания с центрированием
         self.create_btn = QPushButton("Создать")
         self.create_btn.clicked.connect(self._on_create)
-
-        layout.addRow(
-            "Название:",
-            self.title_input
-        )
-        layout.addRow(
-            "Варианты (через запятую):",
-            self.options_input
-        )
-        layout.addWidget(self.create_btn)
+        
+        # Создаем горизонтальный layout для центрирования
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()  # Растягивающийся пробел слева
+        button_layout.addWidget(self.create_btn)
+        button_layout.addStretch()  # Растягивающийся пробел справа
+        
+        layout.addRow(button_layout)
 
         self.setLayout(layout)
 
-    def _on_create(self) -> None:
+    def _add_option_field(self, label: str = None):
+        """Добавляет новое поле для ввода варианта"""
+        row = QHBoxLayout()
+        
+        if not label:
+            label = f"Вариант {len(self.option_inputs)+1}:"
+        
+        input_field = QLineEdit()
+        input_field.setPlaceholderText("Введите вариант ответа")
+        
+        self.option_inputs.append(input_field)
+        row.addWidget(QLabel(label))
+        row.addWidget(input_field)
+        self.options_layout.addLayout(row)
+
+    def _on_create(self):
+        """Обработчик нажатия кнопки создания"""
         title = self.title_input.text().strip()
-        raw_options = self.options_input.text()
-
+        options = []
+        
+        for input_field in self.option_inputs:
+            option = input_field.text().strip()
+            if option:
+                options.append(option)
+        
         try:
-            options = [
-                opt.strip()
-                for opt in shlex.split(
-                    raw_options,
-                    posix=False
-                )
-                if opt.strip()
-            ]
-        except ValueError as e:
-            QMessageBox.warning(
-                self,
-                "Ошибка",
-                f"Некорректный формат вариантов: {str(e)}"
-            )
-            return
+            if not title:
+                raise ValidationError("Название опроса не может быть пустым", "title")
+                
+            if len(options) < 2:
+                raise ValidationError("Требуется минимум 2 варианта", "options")
+                
+            if len(options) != len(set(options)):
+                raise ValidationError("Обнаружены дублирующиеся варианты", "options")
 
-        self.create_poll.emit(
-            title,
-            options
-        )
-
+            self.create_poll.emit(title, options)
+            self.close()
+            
+        except ValidationError as e:
+            QMessageBox.warning(self, "Ошибка", e.message)
 
 class PollEditorView(BaseView):
     update_poll = Signal(str, list)
@@ -2331,6 +2405,7 @@ class VotingView(BaseView):
             QMessageBox.warning(self, "Ошибка", "Выберите вариант для голосования")
             return
 
+        self.close()
         dialog = FaceCaptureDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -2614,6 +2689,9 @@ class MainController(BaseController):
                 self.model.admin_status_changed,
                 self._update_admin_ui
             ),
+            (   self.view.delete_poll_requested, 
+                self._delete_poll
+            ),
         ]
         for sig, handler in connections:
             self.manage_connection(
@@ -2645,6 +2723,21 @@ class MainController(BaseController):
         )
         controller.setParent(view)
         view.show()
+
+    def _delete_poll(self, index: int) -> None:
+        if 0 <= index < len(self.model.polls):
+            self.model.delete_poll(index)
+            QMessageBox.information(
+                self.view,
+                "Успех",
+                "Опрос успешно удален"
+            )
+        else:
+            QMessageBox.warning(
+                self.view,
+                "Ошибка",
+                "Неверный индекс опроса"
+            )
 
     def _show_admin_login(self) -> None:
         dialog = self._auth_view_factory()
