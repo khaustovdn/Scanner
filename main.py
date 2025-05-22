@@ -466,10 +466,6 @@ class Config:
     JITTERS = 10
     TOLERANCE = 0.5
 
-    SHARP_TH = 80
-    BRIGHTNESS_TH = 40
-    CONTRAST_TH = 30
-
     CENTER_TH = 0.1
     SIZE_TH = 0.3
     ANGLE_TH = 15
@@ -792,39 +788,8 @@ class FrameProcessor:
             "centered_y": centering["centered_y"],
             "direction_x": centering["direction_x"],
             "direction_y": centering["direction_y"],
-            "size": "Приблизьтесь" if not size_ok else None,
-            "sharpness": "Держите камеру неподвижно" if not self.is_sharp(face_region) else None,
-            "brightness": "Увеличьте освещение" if not self.is_bright(face_region) else None,
-            "contrast": "Улучшите контраст" if not self.has_contrast(face_region) else None
+            "size": "Приблизьтесь" if not size_ok else None
         }
-
-    @staticmethod
-    def is_sharp(image: NDArray[np.uint8]) -> bool:
-        gray = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2GRAY
-        )
-        laplacian_var = cv2.Laplacian(
-            gray,
-            cv2.CV_64F
-        ).var()
-        return laplacian_var >= Config.SHARP_TH
-
-    @staticmethod
-    def is_bright(image: NDArray[np.uint8]) -> bool:
-        gray = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2GRAY
-        )
-        return gray.mean() >= Config.BRIGHTNESS_TH
-
-    @staticmethod
-    def has_contrast(image: NDArray[np.uint8]) -> bool:
-        gray = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2GRAY
-        )
-        return gray.std() >= Config.CONTRAST_TH
 
     @staticmethod
     def has_sufficient_size(
@@ -929,10 +894,7 @@ class FaceCaptureDialog(QDialog):
             if all([
                 feedback["centered_x"],
                 feedback["centered_y"],
-                not feedback["size"],
-                not feedback["sharpness"],
-                not feedback["brightness"],
-                not feedback["contrast"]
+                not feedback["size"]
             ]):
                 self.selected_frame = frame.copy()
                 self.accept()
@@ -969,7 +931,7 @@ class CameraCapture(FrameCapture):
         self._device.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._device.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self._device.set(cv2.CAP_PROP_FPS, 15)
-        self._device.set(cv2.CAP_PROP_BUFFERSIZE, 2) 
+        self._device.set(cv2.CAP_PROP_BUFFERSIZE, 2)
 
         self._device.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
         if not self._device.isOpened():
@@ -1202,27 +1164,7 @@ class RecognitionPipeline:
         )
         is_centered = centering["centered_x"] and centering["centered_y"]
 
-        return (
-            is_centered
-            and self.frame_processor.is_sharp(
-                frame[
-                    location[0]:location[2],
-                    location[3]:location[1]
-                ]
-            )
-            and self.frame_processor.is_bright(
-                frame[
-                    location[0]:location[2],
-                    location[3]:location[1]
-                ]
-            )
-            and self.frame_processor.has_contrast(
-                frame[
-                    location[0]:location[2],
-                    location[3]:location[1]
-                ]
-            )
-        )
+        return is_centered
 
     def _register_new_face(
         self,
@@ -1723,14 +1665,14 @@ class AppModel(QObject):
             try:
                 file_path.unlink()
                 self.logger.info(
-                    "AppModel", 
-                    "Файл опроса %s удален", 
+                    "AppModel",
+                    "Файл опроса %s удален",
                     file_path
                 )
             except Exception as e:
                 self.logger.error(
-                    "AppModel", 
-                    "Ошибка удаления файла: %s", 
+                    "AppModel",
+                    "Ошибка удаления файла: %s",
                     str(e)
                 )
             self.polls_changed.emit()
@@ -1974,7 +1916,6 @@ class MainView(QWidget):
         self.logout_btn.clicked.connect(self._confirm_logout)
         self.logout_btn.setVisible(False)
 
-
         layout.addWidget(self.delete_poll_btn)
         layout.addWidget(self.admin_login_btn)
         layout.addWidget(self.add_poll_btn)
@@ -2104,11 +2045,11 @@ class PollCreatorView(BaseView):
         self.options_container = QWidget()
         self.options_layout = QVBoxLayout()
         self.options_container.setLayout(self.options_layout)
-        
+
         # Начальные 2 поля
         self._add_option_field("Вариант 1:")
         self._add_option_field("Вариант 2:")
-        
+
         # Кнопка добавления
         self.add_option_btn = QPushButton("Добавить вариант")
         self.add_option_btn.clicked.connect(self._add_option_field)
@@ -2119,13 +2060,13 @@ class PollCreatorView(BaseView):
         # Кнопка создания с центрированием
         self.create_btn = QPushButton("Создать")
         self.create_btn.clicked.connect(self._on_create)
-        
+
         # Создаем горизонтальный layout для центрирования
         button_layout = QHBoxLayout()
         button_layout.addStretch()  # Растягивающийся пробел слева
         button_layout.addWidget(self.create_btn)
         button_layout.addStretch()  # Растягивающийся пробел справа
-        
+
         layout.addRow(button_layout)
 
         self.setLayout(layout)
@@ -2133,13 +2074,13 @@ class PollCreatorView(BaseView):
     def _add_option_field(self, label: str = None):
         """Добавляет новое поле для ввода варианта"""
         row = QHBoxLayout()
-        
+
         if not label:
-            label = f"Вариант {len(self.option_inputs)+1}:"
-        
+            label = f"Вариант {len(self.option_inputs) + 1}:"
+
         input_field = QLineEdit()
         input_field.setPlaceholderText("Введите вариант ответа")
-        
+
         self.option_inputs.append(input_field)
         row.addWidget(QLabel(label))
         row.addWidget(input_field)
@@ -2149,27 +2090,28 @@ class PollCreatorView(BaseView):
         """Обработчик нажатия кнопки создания"""
         title = self.title_input.text().strip()
         options = []
-        
+
         for input_field in self.option_inputs:
             option = input_field.text().strip()
             if option:
                 options.append(option)
-        
+
         try:
             if not title:
                 raise ValidationError("Название опроса не может быть пустым", "title")
-                
+
             if len(options) < 2:
                 raise ValidationError("Требуется минимум 2 варианта", "options")
-                
+
             if len(options) != len(set(options)):
                 raise ValidationError("Обнаружены дублирующиеся варианты", "options")
 
             self.create_poll.emit(title, options)
             self.close()
-            
+
         except ValidationError as e:
             QMessageBox.warning(self, "Ошибка", e.message)
+
 
 class PollEditorView(BaseView):
     update_poll = Signal(str, list)
@@ -2197,11 +2139,11 @@ class PollEditorView(BaseView):
         self.options_container = QWidget()
         self.options_layout = QVBoxLayout()
         self.options_container.setLayout(self.options_layout)
-        
+
         # Заполнение существующих вариантов
         for option in self.poll.options.keys():
             self._add_option_field(option)
-        
+
         # Кнопка добавления нового варианта
         self.add_option_btn = QPushButton("Добавить вариант")
         self.add_option_btn.clicked.connect(lambda: self._add_option_field())
@@ -2211,29 +2153,29 @@ class PollEditorView(BaseView):
         # Кнопка обновления
         self.update_btn = QPushButton("Обновить")
         self.update_btn.clicked.connect(self._on_update)
-        
+
         # Центрирование кнопки
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         button_layout.addWidget(self.update_btn)
         button_layout.addStretch()
-        
+
         layout.addRow(button_layout)
         self.setLayout(layout)
 
     def _add_option_field(self, initial_text: str = ""):
         """Добавляет новое поле для варианта с кнопкой удаления"""
         row = QHBoxLayout()
-        
+
         input_field = QLineEdit(initial_text)
         input_field.setPlaceholderText("Введите вариант ответа")
         self.option_inputs.append(input_field)
-        
+
         # Кнопка удаления варианта
         remove_btn = QPushButton("×")
         remove_btn.setFixedSize(25, 25)
         remove_btn.clicked.connect(lambda: self._remove_option(row, input_field))
-        
+
         row.addWidget(input_field)
         row.addWidget(remove_btn)
         self.options_layout.addLayout(row)
@@ -2256,7 +2198,7 @@ class PollEditorView(BaseView):
         title = self.title_input.text().strip()
         options = [field.text().strip() for field in self.option_inputs]
         options = [opt for opt in options if opt]  # Игнорируем пустые
-        
+
         try:
             # Валидация данных
             if not title:
@@ -2265,12 +2207,13 @@ class PollEditorView(BaseView):
                 raise ValidationError("Требуется минимум 2 варианта", "options")
             if len(options) != len(set(options)):
                 raise ValidationError("Обнаружены дублирующиеся варианты", "options")
-            
+
             self.update_poll.emit(title, options)
             self.close()
-            
+
         except ValidationError as e:
             QMessageBox.warning(self, "Ошибка", e.message)
+
 
 class VotingView(BaseView):
     vote_submitted = Signal(str)
@@ -2470,8 +2413,13 @@ class VotingView(BaseView):
             encoding = encodings[0]
             known_encodings = [e["encoding"] for e in self.poll.database]
 
-            if encoder.match_features(known_encodings, encoding, Config.TOLERANCE):
-                raise ValidationError("Вы уже голосовали в этом опросе")
+            current_encoding = np.array(encodings[0]).flatten()
+            known_encodings = [np.array(e["encoding"]).flatten() for e in self.poll.database]
+
+            if len(known_encodings) > 0:
+                matches = encoder.match_features(known_encodings, current_encoding, Config.TOLERANCE)
+                if any(matches):
+                    raise ValidationError("Вы уже голосовали в этом опросе")
 
             self.poll.database.add_entry(encoding)
             if not self.poll.add_vote(selected_option):
@@ -2722,9 +2670,9 @@ class MainController(BaseController):
                 self.model.admin_status_changed,
                 self._update_admin_ui
             ),
-            (   self.view.delete_poll_requested, 
+            (self.view.delete_poll_requested,
                 self._delete_poll
-            ),
+             ),
         ]
         for sig, handler in connections:
             self.manage_connection(
